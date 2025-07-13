@@ -1,0 +1,25 @@
+# Ignore model files and embeddings
+models/
+*.gguf
+
+# Ignore downloaded book text
+data/
+*.txt
+
+# Ignore ChromaDB database
+db/
+chroma.db/
+
+# Python virtual env
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# VSCode settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
