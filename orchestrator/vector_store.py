@@ -32,3 +32,10 @@ def query_book(title, query, top_k=5):
     query_embedding = model.encode(query).tolist()
     results = collection.query(query_embeddings=[query_embedding], n_results=top_k, where={"title": title})
     return results["documents"][0] if results["documents"] else []
+
+def get_last_chunk(title):
+    results = collection.get(where={"title": title})
+    if results and "documents" in results and results["documents"]:
+        return results["documents"][-1]  # last embedded chunk
+    return "The story continues..."
+

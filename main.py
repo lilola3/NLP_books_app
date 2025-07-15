@@ -1,5 +1,6 @@
-import os
 from orchestrator.orchestrator import handle_user_request
+from orchestrator.context_manager import Context
+import os
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -10,10 +11,13 @@ def main():
 
     print("\nSearching for books...")
     book_info = handle_user_request("search", query)
-
-    if not book_info:
-        print("❌ No books found.")
-        return
+    while True:
+        if not book_info:
+            print("❌ No books found. Please try another query.")
+            query = input("🔎 Enter book title or author: ")
+            book_info = handle_user_request("search", query)
+        else:
+            break
 
     print("\nTop Matches:")
     for idx, book in enumerate(book_info[:5], 1):
@@ -46,6 +50,10 @@ def main():
             f.write(full_text)
         print("✅ Book saved to local storage.")
 
+    # ✅ Initialize context AFTER book is downloaded
+    ctx = Context()
+    ctx.update(book_title=title, book_id=selected_book['id'], full_text=full_text)
+
     while True:
         task = input("\n🛠 Choose task (summarize / continue / question / exit): ").strip().lower()
 
@@ -55,16 +63,17 @@ def main():
 
         elif task == "summarize":
             result = handle_user_request("summarize", {
-                "text": full_text,
-                "title": title
+                "text": ctx.get("full_text"),
+                "title": ctx.get("book_title"),
+                "ctx": ctx
             })
             print("\n📝 Summary:\n", result)
 
         elif task == "continue":
-            user_paragraph = input("✍️ Enter a paragraph to continue in the author's style:\n")
             result = handle_user_request("continue", {
-                "text": user_paragraph,
-                "title": title
+                "title": ctx.get("book_title"),
+                "text": ctx.get("full_text"),
+                "ctx": ctx
             })
             print("\n➡️ Continuation:\n", result)
 
@@ -72,7 +81,8 @@ def main():
             question = input("❓ What would you like to ask about the book?\n")
             result = handle_user_request("question", {
                 "question": question,
-                "title": title
+                "title": ctx.get("book_title"),
+                "ctx": ctx
             })
             print("\n🧠 Answer:\n", result)
 
