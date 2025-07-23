@@ -1,93 +1,87 @@
-from orchestrator.orchestrator import handle_user_request
-from orchestrator.context_manager import Context
-import os
+# main.py
 
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+import os
+from mcp_agents.gutenberg_api import GutenbergAPI
+from orchestrator.orchestrator_agent import ensure_book_available_and_ingested, orchestrate_request # Import new orchestrator function
+
+DATA_FOLDER = "data"
+remembered_title = None  # Keep current book title across queries
+
+def search_and_select_book():
+    """Handles the book search and selection process."""
+    while True:
+        query = input("Enter book title or author to search: ").strip()
+        if not query:
+            print("Please enter something.")
+            continue
+
+        results = GutenbergAPI.search_books({"title": query})
+        if not results:
+            print("No results found. Try again.")
+            continue
+
+        print("\nSearch results:")
+        for i, book in enumerate(results, start=1):
+            print(f"{i}. {book['title']} — {book['author']}")
+
+        choice = input("Select a book by number or 'q' to quit: ").strip()
+        if choice.lower() == 'q':
+            return None
+
+        if not choice.isdigit() or not (1 <= int(choice) <= len(results)):
+            print("Invalid choice. Please enter a valid number.")
+            continue
+
+        selected = results[int(choice) - 1]
+        print(f"You selected: {selected['title']} by {selected['author']}")
+        return selected
 
 def main():
+    global remembered_title
     print("📚 Welcome to the Book Assistant!")
-    query = input("🔎 Enter book title or author: ")
 
-    print("\nSearching for books...")
-    book_info = handle_user_request("search", query)
-    while True:
-        if not book_info:
-            print("❌ No books found. Please try another query.")
-            query = input("🔎 Enter book title or author: ")
-            book_info = handle_user_request("search", query)
-        else:
-            break
-
-    print("\nTop Matches:")
-    for idx, book in enumerate(book_info[:5], 1):
-        title = book['title']
-        author = book['authors'][0]['name'] if book['authors'] else "Unknown"
-        print(f"{idx}. {title} — {author}")
-
-    choice = input("📘 Enter the number of the book to download: ")
-    try:
-        choice = int(choice) - 1
-        selected_book = book_info[choice]
-    except:
-        print("❌ Invalid selection.")
-        return
-
-    title = selected_book["title"]
-    book_path = os.path.join(DATA_DIR, f"{title}.txt")
-
-    if os.path.exists(book_path):
-        with open(book_path, "r", encoding="utf-8") as f:
-            full_text = f.read()
-        print("📂 Loaded book from local storage.")
-    else:
-        print(f"\n📥 Downloading '{title}'...")
-        full_text = handle_user_request("download", selected_book['id'])
-        if not full_text:
-            print("❌ Failed to download book text.")
+    # Search and pick book at start
+    while not remembered_title:
+        book_info_from_search = search_and_select_book()
+        if book_info_from_search is None:
+            print("Exiting...")
             return
-        with open(book_path, "w", encoding="utf-8") as f:
-            f.write(full_text)
-        print("✅ Book saved to local storage.")
 
-    # ✅ Initialize context AFTER book is downloaded
-    ctx = Context()
-    ctx.update(book_title=title, book_id=selected_book['id'], full_text=full_text)
+        verified_title = ensure_book_available_and_ingested(book_info_from_search)
+        if verified_title:
+            remembered_title = verified_title
+        else:
+            print("Please try another book.")
+
+    print(f"Ready! You can ask questions, request summaries, or ask to continue the story for '{remembered_title}'.")
+    print("Type 'exit' or 'quit' to stop.")
+    print("To switch books, just mention the new book title, e.g., 'tell me about Moby Dick'.")
+
 
     while True:
-        task = input("\n🛠 Choose task (summarize / continue / question / exit): ").strip().lower()
-
-        if task == "exit":
-            print("👋 Exiting the assistant. Goodbye!")
+        user_input = input(" > ").strip()
+        if user_input.lower() in {"exit", "quit"}:
+            print("👋 Goodbye!")
             break
 
-        elif task == "summarize":
-            result = handle_user_request("summarize", {
-                "text": ctx.get("full_text"),
-                "title": ctx.get("book_title"),
-                "ctx": ctx
-            })
-            print("\n📝 Summary:\n", result)
+        # DEBUG PRINTS IN MAIN.PY
+        print(f"DEBUG MAIN: User input: '{user_input}'")
+        print(f"DEBUG MAIN: remembered_title BEFORE orchestrate_request: '{remembered_title}'")
+        
+        try:
+            response, updated_remembered_title = orchestrate_request(user_input, remembered_title)
+            remembered_title = updated_remembered_title # Update the global remembered_title
 
-        elif task == "continue":
-            result = handle_user_request("continue", {
-                "title": ctx.get("book_title"),
-                "text": ctx.get("full_text"),
-                "ctx": ctx
-            })
-            print("\n➡️ Continuation:\n", result)
+            print("\n🧠 Answer:\n", response)
 
-        elif task == "question":
-            question = input("❓ What would you like to ask about the book?\n")
-            result = handle_user_request("question", {
-                "question": question,
-                "title": ctx.get("book_title"),
-                "ctx": ctx
-            })
-            print("\n🧠 Answer:\n", result)
+        except Exception as e:
+            print(f"❌ An unexpected error occurred: {e}")
+            import traceback # Add traceback for detailed error location
+            traceback.print_exc() # Print full traceback
+        
+        print(f"DEBUG MAIN: remembered_title AFTER orchestrate_request (for next turn): '{remembered_title}'")
 
-        else:
-            print("❌ Unknown task. Please choose summarize / continue / question / exit.")
 
 if __name__ == "__main__":
+    os.makedirs(DATA_FOLDER, exist_ok=True)
     main()
