@@ -3,17 +3,19 @@
 import json
 from mcp_agents.llm_gateway import call_llm
 
-def build_summary_prompt(title: str, chunks: list[str]) -> str:
+def build_summary_prompt(title: str, text_content: str) -> str:
     """
-    Build a prompt for summarizing a book from given chunks.
+    Build a prompt for summarizing text.
+    text_content should be a single string (which might be joined chunks or a truncated text).
     """
-    context = "\n\n".join(chunks) if chunks else "[No content available]"
-    return f"""You are a literary analyst. Summarize the book titled '{title}' using the following excerpts.
-Focus on characters, plot, tone, and themes. Avoid boilerplate or meta information.
+    context = text_content if text_content else "[No content available]"
+    
+    return f"""You are a helpful assistant that summarizes books.
+Provide a concise summary of the book '{title}' based on the following text excerpts. Focus on the main plot, key characters, and overarching themes.
 
---- Begin Excerpts ---
+--- Begin Excerpt(s) ---
 {context}
---- End Excerpts ---
+--- End Excerpt(s) ---
 
 Summary:
 """
@@ -112,13 +114,20 @@ Now analyze the user input and provide only the JSON output.
     if result.get("intent") not in valid_intents:
         result["intent"] = "question" # Default to question if intent is unknown
 
-    extracted_title_lower = result.get("title", "").lower().strip()
+    # --- MODIFICATION START ---
+    # Retrieve the title, if it's None, set it to an empty string before calling .lower()
+    raw_extracted_title = result.get("title")
+    extracted_title_lower = ""
+    if raw_extracted_title is not None:
+        extracted_title_lower = str(raw_extracted_title).lower().strip()
+    # --- MODIFICATION END ---
+
     # THIS LINE IS CRITICAL - ENSURE IT HAS THE GUARD
     current_book_title_lower = (current_book_title.lower().strip() if current_book_title else '')
 
     # Calculate is_same_book_by_contains unconditionally if there's an extracted title
     is_same_book_by_contains = False # Initialize to False
-    if extracted_title_lower:
+    if extracted_title_lower: # Now extracted_title_lower is guaranteed to be a string
         is_same_book_by_contains = (extracted_title_lower in current_book_title_lower) or \
                                    (current_book_title_lower and current_book_title_lower in extracted_title_lower)
     
@@ -132,6 +141,8 @@ Now analyze the user input and provide only the JSON output.
     # This prevents `orchestrate_request` from trying to switch to the same book.
     # This should only happen if the user isn't explicitly trying to switch (intent != "switch_book").
     if extracted_title_lower and is_same_book_by_contains and result["intent"] != "switch_book":
+        # Keep this logic if you want to explicitly clear the title if it's the same as the current book
+        # and not a switch intent. This makes orchestrator rely on remembered_title.
         result["title"] = None # Clear the title, as it's not a new book
 
     # If the intent is switch_book but no title was extracted (e.g., "switch books"), keep title as None
